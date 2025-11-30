@@ -5,12 +5,9 @@ import lightgbm as lgb
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-
-# ==== НАСТРОЙКИ ПУТЕЙ ====
 MODEL_PATH = "model.txt"
 TEST_PATH = "hackathon_income_test.csv"
 
-# === СПИСОК КАТЕГОРИАЛЬНЫХ ПРИЗНАКОВ ДОЛЖЕН СОВПАДАТЬ С ОБУЧЕНИЕМ ===
 EXPLICIT_CATEGORY_COLS = [
     # соц-дем / гео
     "gender",
@@ -32,17 +29,7 @@ EXPLICIT_CATEGORY_COLS = [
     "vert_has_app_ru_raiffeisennews",
 ]
 
-# =========================
-#   ТЕ ЖЕ ФУНКЦИИ, ЧТО В РАБОТАЮЩЕМ СКРИПТЕ
-# =========================
-
 def load_data(path: str) -> pd.DataFrame:
-    """
-    Унифицированное чтение CSV:
-    - разделитель ';'
-    - десятичный разделитель '.'
-    - кодировка cp1251 (как в твоём рабочем скрипте)
-    """
     df = pd.read_csv(
         path,
         sep=";",
@@ -54,15 +41,9 @@ def load_data(path: str) -> pd.DataFrame:
 
 
 def clean_object_columns(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Приведение типов:
-    - строго категориальные признаки = EXPLICIT_CATEGORY_COLS
-    - остальные object — пытаемся привести к числам
-    """
     df = df.copy()
 
     for col in df.columns:
-        # если колонка заранее помечена как категориальная — сразу в category
         if col in EXPLICIT_CATEGORY_COLS:
             df[col] = df[col].astype("category")
             continue
@@ -75,20 +56,15 @@ def clean_object_columns(df: pd.DataFrame) -> pd.DataFrame:
                 .replace({"nan": np.nan, "NaN": np.nan, "None": np.nan, "": np.nan})
             )
 
-            # пробуем преобразовать в float
             s_num = pd.to_numeric(
                 s.str.replace(" ", "", regex=False).str.replace(",", ".", regex=False),
                 errors="coerce",
             )
 
-            df[col] = s_num  # часть значений может стать NaN — это нормально
+            df[col] = s_num  
 
     return df
 
-
-# =========================
-#   ГЛОБАЛЫ ДЛЯ API
-# =========================
 
 app = FastAPI(
     title="Hackathon Income Model API",
@@ -114,10 +90,6 @@ test_df: pd.DataFrame | None = None
 feature_names: list[str] = []
 
 
-# =========================
-#   STARTUP: ГРУЗИМ ВСЁ КАК В СКРИПТЕ
-# =========================
-
 @app.on_event("startup")
 def startup_event():
     global model, test_df, feature_names
@@ -133,7 +105,6 @@ def startup_event():
     df = load_data(TEST_PATH)
     df = clean_object_columns(df)
 
-    # проверяем, что все фичи из модели есть в тесте
     missing = [f for f in feature_names if f not in df.columns]
     if missing:
         raise RuntimeError(
@@ -151,17 +122,7 @@ def startup_event():
     print("=== STARTUP DONE ===")
 
 
-# =========================
-#   ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ПРЕДСКАЗАНИЯ
-# =========================
-
 def predict_for_id(client_id: int) -> float:
-    """
-    Возвращает предсказание модели по client_id (из test_df).
-    Дополнительно:
-    - заменяет запятые на точки
-    - приводит все строковые значения к float
-    """
     if model is None or test_df is None or not feature_names:
         raise RuntimeError("Модель или данные ещё не инициализированы.")
 
@@ -170,7 +131,6 @@ def predict_for_id(client_id: int) -> float:
 
     row = test_df.loc[client_id].copy()
 
-    # === ЛОКАЛЬНО ОЧИЩАЕМ СТРОКУ ===
     for col in feature_names:
         val = row[col]
 
@@ -180,21 +140,15 @@ def predict_for_id(client_id: int) -> float:
             try:
                 row[col] = float(cleaned)
             except:
-                row[col] = np.nan  # если не конвертится — ставим NaN
+                row[col] = np.nan  
 
-    # Собираем X в нужном порядке
     X = row[feature_names].to_frame().T
 
-    # LightGBM воспринимает numpy как числовую матрицу → нет ошибок типа category mismatch
     X_np = X.to_numpy()
 
     preds = model.predict(X_np, num_iteration=model.best_iteration)
     return float(preds[0])
 
-
-# =========================
-#   ЭНДПОЙНТЫ
-# =========================
 
 @app.get("/health")
 def health():
