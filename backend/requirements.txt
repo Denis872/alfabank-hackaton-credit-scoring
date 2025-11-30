@@ -1,0 +1,7 @@
+numpy
+pandas
+lightgbm
+fastapi
+uvicorn[standard]
+pydantic
+shap
